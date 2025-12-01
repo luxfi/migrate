@@ -72,22 +72,6 @@ func NewCChainImporter(config ImporterConfig) (Importer, error) {
 	return nil, ErrUnsupportedVMType
 }
 
-// Coreth exporters/importers (legacy C-Chain VM)
-func NewCorethExporter(config ExporterConfig) (Exporter, error) {
-	factoryMu.RLock()
-	factory, ok := exporterFactories[VMTypeCoreth]
-	factoryMu.RUnlock()
-	if ok {
-		return factory(config)
-	}
-	return nil, ErrUnsupportedVMType
-}
-
-func NewCorethImporter(config ImporterConfig) (Importer, error) {
-	// TODO: Implement using coreth package
-	return nil, ErrUnsupportedVMType
-}
-
 // Zoo L2 exporters/importers
 func NewZooL2Exporter(config ExporterConfig) (Exporter, error) {
 	factoryMu.RLock()

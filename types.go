@@ -15,14 +15,13 @@ import (
 type VMType string
 
 const (
-	VMTypeSubnetEVM VMType = "subnet-evm"
-	VMTypeCChain    VMType = "c-chain"
-	VMTypeCoreth    VMType = "coreth"
-	VMTypeZooL2     VMType = "zoo-l2"
-	VMTypePChain    VMType = "p-chain"
-	VMTypeXChain    VMType = "x-chain"
-	VMTypeQChain    VMType = "q-chain"
-	VMTypeCustom    VMType = "custom"
+	VMTypeSubnetEVM VMType = "subnet-evm" // SubnetEVM - export via PebbleDB, import via BadgerDB
+	VMTypeCChain    VMType = "c-chain"    // C-Chain (Coreth) - export via RPC, import via BadgerDB
+	VMTypeZooL2     VMType = "zoo-l2"     // Zoo L2 - export via PebbleDB, import via BadgerDB
+	VMTypePChain    VMType = "p-chain"    // P-Chain - export/import via Platform API
+	VMTypeXChain    VMType = "x-chain"    // X-Chain - export/import via AVM API
+	VMTypeQChain    VMType = "q-chain"    // Q-Chain - export/import via RPC
+	VMTypeCustom    VMType = "custom"     // Custom VM
 )
 
 // BlockData represents a generic block with all necessary data for migration

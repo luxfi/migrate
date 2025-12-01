@@ -46,8 +46,6 @@ func NewImporter(config ImporterConfig) (Importer, error) {
 		return NewSubnetEVMImporter(config)
 	case VMTypeCChain:
 		return NewCChainImporter(config)
-	case VMTypeCoreth:
-		return NewCorethImporter(config)
 	case VMTypeZooL2:
 		return NewZooL2Importer(config)
 	case VMTypePChain:
