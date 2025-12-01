@@ -124,6 +124,9 @@ type Info struct {
 	// Feature flags
 	HasWarpMessages bool
 	HasProposerVM   bool
+
+	// VM-specific extensions (for P-Chain, X-Chain, etc.)
+	Extensions map[string]interface{}
 }
 
 // Config contains configuration for a blockchain/VM
@@ -152,6 +155,9 @@ type Config struct {
 	HasNetID    bool
 	NetID       string
 	Precompiles map[common.Address]string
+
+	// VM-specific extensions (for P-Chain, X-Chain, etc.)
+	Extensions map[string]interface{}
 }
 
 // ExporterConfig configures an exporter instance
@@ -161,7 +167,8 @@ type ExporterConfig struct {
 	DatabaseType string // "pebble", "badger", "leveldb"
 
 	// For network-based export
-	RPCURL string
+	RPCURL    string
+	NetworkID uint64
 
 	// Namespace for multi-chain databases
 	NetNamespace []byte
