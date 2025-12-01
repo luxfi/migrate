@@ -51,8 +51,6 @@ func NewExporter(config ExporterConfig) (Exporter, error) {
 		return NewSubnetEVMExporter(config)
 	case VMTypeCChain:
 		return NewCChainExporter(config)
-	case VMTypeCoreth:
-		return NewCorethExporter(config)
 	case VMTypeZooL2:
 		return NewZooL2Exporter(config)
 	case VMTypePChain:
