@@ -108,6 +108,22 @@ func (r *Reader) Close() error {
 	return r.file.Close()
 }
 
+// ReadAllBlocks reads all blocks from the JSONL file
+func (r *Reader) ReadAllBlocks() ([]*migrate.BlockData, error) {
+	var blocks []*migrate.BlockData
+	for {
+		block, err := r.ReadBlock()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, block)
+	}
+	return blocks, nil
+}
+
 // StreamReader provides channel-based block reading
 type StreamReader struct {
 	path string
