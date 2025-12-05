@@ -215,6 +215,53 @@ Line-delimited JSON for streaming:
 - **Genesis tools**: `/Users/z/work/lux/genesis/LLM.md`
 - **CLI docs**: `/Users/z/work/lux/cli/LLM.md`
 
+## Testing Results (2025-12-04)
+
+### migrate_importBlocks API - ✅ WORKING
+
+**Test Setup:**
+- Node: luxd on network 12345
+- Test data: 10 blocks (blocks 790-799 from ZOO mainnet)
+- Import tool: `/Users/z/work/lux/migrate/cmd/import-jsonl/`
+
+**Results:**
+```
+✅ Blocks imported: 10/10 (100%)
+✅ Import rate: ~2300 blocks/sec
+✅ Database updated: head hash and canonical hashes written
+✅ Blockchain reload: recovered 790 blocks
+✅ eth_blockNumber: returns 0x316 (790)
+✅ eth_getBlockByNumber: returns block data correctly
+```
+
+**What Works:**
+- Block headers imported into BadgerDB
+- Block bodies imported into BadgerDB
+- Receipts imported into BadgerDB
+- Canonical hash chain written
+- Head pointers updated
+- Blockchain state reload succeeds
+- Block queries work via RPC
+
+**What Does NOT Work:**
+```
+❌ State trie NOT imported
+❌ eth_getBalance fails with "missing trie node"
+❌ Account balances unavailable
+❌ Contract storage unavailable
+```
+
+**Root Cause:**
+The `migrate_importBlocks` API imports **block data only**, not the **state trie**.
+To query balances and execute transactions, you need:
+1. Import state trie separately, OR
+2. Rebuild state by executing all transactions from genesis
+
+**Next Steps to Fix:**
+1. Export state trie from source chain (SubnetEVM PebbleDB)
+2. Import state trie nodes into C-Chain BadgerDB
+3. Verify state root matches imported blocks
+
 ## Rules for AI Assistants
 
 1. **ALWAYS** use this package for any migration work - don't create duplicate code
@@ -222,6 +269,7 @@ Line-delimited JSON for streaming:
 3. **NEVER** commit random summary files - update THIS file
 4. Use JSONL as the intermediate format for all migrations
 5. All new VM types must implement both Exporter and Importer interfaces
+6. **IMPORTANT**: Block import alone is NOT sufficient - state trie must be migrated too
 
 ---
 
