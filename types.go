@@ -57,6 +57,9 @@ type BlockData struct {
 	Transactions []*Transaction
 	UncleHeaders [][]byte
 
+	// State changes for this block
+	StateChanges map[common.Address]*Account
+
 	// VM-specific extensions
 	Extensions map[string]interface{}
 }

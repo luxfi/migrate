@@ -402,7 +402,58 @@ func (e *Exporter) exportBlock(height uint64) (*migrate.BlockData, error) {
 		blockData.Extensions["hasEIP1559"] = true
 	}
 
+	// Export state changes if configured
+	if e.config.ExportState {
+		stateChanges, err := e.exportBlockStateChanges(height, txs)
+		if err == nil {
+			blockData.StateChanges = stateChanges
+		}
+	}
+
 	return blockData, nil
+}
+
+// exportBlockStateChanges exports state changes affected by transactions in a block.
+// This includes all accounts touched by transactions (from, to, contract creations).
+func (e *Exporter) exportBlockStateChanges(blockNumber uint64, txs []*migrate.Transaction) (map[common.Address]*migrate.Account, error) {
+	stateChanges := make(map[common.Address]*migrate.Account)
+
+	// Collect all addresses affected by transactions
+	affectedAddresses := make(map[common.Address]bool)
+
+	for _, tx := range txs {
+		// Add sender
+		affectedAddresses[tx.From] = true
+
+		// Add recipient
+		if tx.To != nil {
+			affectedAddresses[*tx.To] = true
+		}
+
+		// Add contract creation address
+		if tx.Receipt != nil && tx.Receipt.ContractAddress != nil {
+			affectedAddresses[*tx.Receipt.ContractAddress] = true
+		}
+
+		// Add addresses from logs (contracts that emitted events)
+		if tx.Receipt != nil {
+			for _, log := range tx.Receipt.Logs {
+				affectedAddresses[log.Address] = true
+			}
+		}
+	}
+
+	// Export state for each affected address
+	for addr := range affectedAddresses {
+		account, err := e.ExportAccount(nil, addr, blockNumber)
+		if err != nil {
+			// Skip accounts that can't be fetched (shouldn't happen)
+			continue
+		}
+		stateChanges[addr] = account
+	}
+
+	return stateChanges, nil
 }
 
 // convertRPCTransaction converts an RPC transaction to migrate.Transaction.
