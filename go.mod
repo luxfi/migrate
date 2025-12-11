@@ -7,6 +7,7 @@ require (
 	github.com/holiman/uint256 v1.3.2
 	github.com/luxfi/geth v1.16.39
 	github.com/luxfi/ids v1.1.2
+	github.com/syndtr/goleveldb v1.0.1-0.20220614013038-64ee5596c38a
 )
 
 require (
@@ -24,9 +25,11 @@ require (
 	github.com/consensys/gnark-crypto v0.19.2 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.4.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
+	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/emicklei/dot v1.9.0 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
+	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/ferranbt/fastssz v1.0.0 // indirect
@@ -71,10 +74,4 @@ require (
 	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-)
-
-replace (
-	github.com/luxfi/geth => ../geth
-	github.com/luxfi/ids => ../ids
-	github.com/luxfi/node => ../node
 )
