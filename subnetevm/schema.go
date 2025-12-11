@@ -7,6 +7,10 @@ import (
 	"github.com/luxfi/geth/common"
 )
 
+// ChainIDPrefixLen is the length of the chain ID prefix (32 bytes)
+// Some SubnetEVM databases have keys prefixed with a 32-byte chain ID
+const ChainIDPrefixLen = 32
+
 // Database key prefixes (matching rawdb/schema.go)
 var (
 	headerPrefix        = []byte("h") // headerPrefix + num (uint64 big endian) + hash -> header

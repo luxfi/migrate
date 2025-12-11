@@ -4,12 +4,45 @@
 package migrate
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/luxfi/geth/common"
 	"github.com/luxfi/geth/core/types"
 )
+
+// HexBytes is a byte slice that marshals/unmarshals as hex (with or without 0x prefix)
+type HexBytes []byte
+
+// UnmarshalJSON decodes hex string (with or without 0x prefix) to bytes
+func (h *HexBytes) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	s = strings.TrimPrefix(s, "0x")
+	if s == "" {
+		*h = nil
+		return nil
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return err
+	}
+	*h = b
+	return nil
+}
+
+// MarshalJSON encodes bytes as hex string with 0x prefix
+func (h HexBytes) MarshalJSON() ([]byte, error) {
+	if h == nil {
+		return []byte(`""`), nil
+	}
+	return json.Marshal("0x" + hex.EncodeToString(h))
+}
 
 // VMType identifies the type of virtual machine
 type VMType string
@@ -27,41 +60,41 @@ const (
 // BlockData represents a generic block with all necessary data for migration
 type BlockData struct {
 	// Core block identifiers
-	Number     uint64
-	Hash       common.Hash
-	ParentHash common.Hash
-	Timestamp  uint64
+	Number     uint64      `json:"number"`
+	Hash       common.Hash `json:"hash"`
+	ParentHash common.Hash `json:"parent_hash,omitempty"`
+	Timestamp  uint64      `json:"timestamp,omitempty"`
 
 	// State roots
-	StateRoot        common.Hash
-	ReceiptsRoot     common.Hash
-	TransactionsRoot common.Hash
+	StateRoot        common.Hash `json:"state_root,omitempty"`
+	ReceiptsRoot     common.Hash `json:"receipts_root,omitempty"`
+	TransactionsRoot common.Hash `json:"transactions_root,omitempty"`
 
 	// Block metadata
-	GasLimit        uint64
-	GasUsed         uint64
-	Difficulty      *big.Int
-	TotalDifficulty *big.Int
-	Coinbase        common.Address
-	Nonce           types.BlockNonce
-	MixHash         common.Hash
-	ExtraData       []byte
-	BaseFee         *big.Int // EIP-1559
+	GasLimit        uint64           `json:"gas_limit,omitempty"`
+	GasUsed         uint64           `json:"gas_used,omitempty"`
+	Difficulty      *big.Int         `json:"difficulty,omitempty"`
+	TotalDifficulty *big.Int         `json:"total_difficulty,omitempty"`
+	Coinbase        common.Address   `json:"coinbase,omitempty"`
+	Nonce           types.BlockNonce `json:"nonce,omitempty"`
+	MixHash         common.Hash      `json:"mix_hash,omitempty"`
+	ExtraData       []byte           `json:"extra_data,omitempty"`
+	BaseFee         *big.Int         `json:"base_fee,omitempty"` // EIP-1559
 
-	// RLP encoded data
-	Header   []byte // RLP encoded header
-	Body     []byte // RLP encoded body
-	Receipts []byte // RLP encoded receipts
+	// RLP encoded data (snake_case for JSONL compatibility, HexBytes for hex encoding)
+	Header   HexBytes `json:"header_rlp,omitempty"` // RLP encoded header
+	Body     HexBytes `json:"body_rlp,omitempty"`   // RLP encoded body
+	Receipts HexBytes `json:"receipts_rlp,omitempty"` // RLP encoded receipts
 
 	// Decoded transactions
-	Transactions []*Transaction
-	UncleHeaders [][]byte
+	Transactions []*Transaction `json:"transactions,omitempty"`
+	UncleHeaders [][]byte       `json:"uncle_headers,omitempty"`
 
 	// State changes for this block
-	StateChanges map[common.Address]*Account
+	StateChanges map[common.Address]*Account `json:"state_changes,omitempty"`
 
 	// VM-specific extensions
-	Extensions map[string]interface{}
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }
 
 // Transaction represents a generic transaction
