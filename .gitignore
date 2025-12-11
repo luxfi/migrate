@@ -1,0 +1,6 @@
+# Built binaries
+bin/
+
+# Temporary files
+*.log
+*.tmp
