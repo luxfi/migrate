@@ -217,50 +217,55 @@ Line-delimited JSON for streaming:
 
 ## Testing Results (2025-12-04)
 
-### migrate_importBlocks API - ✅ WORKING
+### migrate_importBlocks API with State - ⚠️ PARTIAL
 
 **Test Setup:**
-- Node: luxd on network 12345
-- Test data: 10 blocks (blocks 790-799 from ZOO mainnet)
+- Node: luxd v1.21.4 on network 96369
+- Genesis data: mainnet genesis with treasury (1.99T LUX)
 - Import tool: `/Users/z/work/lux/migrate/cmd/import-jsonl/`
+- State format: stateChanges map in JSONL
 
 **Results:**
 ```
-✅ Blocks imported: 10/10 (100%)
-✅ Import rate: ~2300 blocks/sec
-✅ Database updated: head hash and canonical hashes written
-✅ Blockchain reload: recovered 790 blocks
-✅ eth_blockNumber: returns 0x316 (790)
-✅ eth_getBlockByNumber: returns block data correctly
+✅ Block import succeeds
+✅ StateChanges field parsed correctly
+✅ importStateChanges() called
+✅ State committed to trie DB
+⚠️  State root mismatch warning logged
+❌ eth_getBalance still returns 0x0
 ```
 
-**What Works:**
-- Block headers imported into BadgerDB
-- Block bodies imported into BadgerDB
-- Receipts imported into BadgerDB
-- Canonical hash chain written
-- Head pointers updated
-- Blockchain state reload succeeds
-- Block queries work via RPC
+**Root Cause - Critical Discovery:**
 
-**What Does NOT Work:**
-```
-❌ State trie NOT imported
-❌ eth_getBalance fails with "missing trie node"
-❌ Account balances unavailable
-❌ Contract storage unavailable
-```
+The `migrate_importBlocks` API **CANNOT** be used for genesis (block 0) because:
+1. Blockchain is already initialized with a genesis from the node's genesis file
+2. Importing block 0 via API creates a NEW genesis block with different hash
+3. State is written to trie DB but blockchain still uses ORIGINAL genesis state root
+4. Result: Two genesis blocks exist, queries use wrong state root
 
-**Root Cause:**
-The `migrate_importBlocks` API imports **block data only**, not the **state trie**.
-To query balances and execute transactions, you need:
-1. Import state trie separately, OR
-2. Rebuild state by executing all transactions from genesis
+**Solution:**
 
-**Next Steps to Fix:**
-1. Export state trie from source chain (SubnetEVM PebbleDB)
-2. Import state trie nodes into C-Chain BadgerDB
-3. Verify state root matches imported blocks
+For **block 0 (genesis)**: Use `migrate_setGenesis` API or restart node with correct genesis file
+For **blocks 1+**: Use `migrate_importBlocks` with stateChanges
+
+**Correct Import Sequence:**
+1. Stop node
+2. Update genesis file with correct allocations
+3. Delete existing chain database
+4. Restart node (loads correct genesis)
+5. Import blocks 1+ with stateChanges via `migrate_importBlocks`
+
+**Alternative Using Existing Database:**
+1. Use `migrate_setGenesis` to replace genesis block 0
+2. Blockchain reloads with new genesis state root
+3. Import remaining blocks with `migrate_importBlocks`
+
+**Tools Created (2025-12-04):**
+- `/Users/z/work/lux/migrate/cmd/genesis-to-jsonl/main.go` - Converts genesis.json to JSONL with state
+- `/Users/z/work/lux/migrate/cmd/import-jsonl/main.go` - Updated to support stateChanges field
+- `/Users/z/work/lux/migrate/cmd/export-genesis/main.go` - Direct state trie export (incomplete)
+
+**Status**: Tools ready, but genesis replacement via API blocked by node initialization order.
 
 ## Rules for AI Assistants
 

@@ -16,20 +16,31 @@ import (
 
 // BlockData represents a block from JSONL export
 type BlockData struct {
-	Number      uint64 `json:"number"`
-	Hash        string `json:"hash"`
-	HeaderRLP   string `json:"header_rlp"`
-	BodyRLP     string `json:"body_rlp"`
-	ReceiptsRLP string `json:"receipts_rlp"`
+	Number       uint64                      `json:"number"`
+	Hash         string                      `json:"hash"`
+	HeaderRLP    string                      `json:"header_rlp"`
+	BodyRLP      string                      `json:"body_rlp"`
+	ReceiptsRLP  string                      `json:"receipts_rlp"`
+	StateChanges map[string]*ImportAccountState `json:"state_changes,omitempty"`
+}
+
+// ImportAccountState represents account state for import
+type ImportAccountState struct {
+	Balance  string            `json:"balance"`
+	Nonce    uint64            `json:"nonce"`
+	Code     string            `json:"code,omitempty"`
+	Storage  map[string]string `json:"storage,omitempty"`
+	CodeHash string            `json:"code_hash,omitempty"`
 }
 
 // ImportBlockEntry represents a block for the migrate API
 type ImportBlockEntry struct {
-	Height   uint64 `json:"height"`
-	Hash     string `json:"hash"`
-	Header   string `json:"header"`
-	Body     string `json:"body"`
-	Receipts string `json:"receipts"`
+	Height       uint64                         `json:"height"`
+	Hash         string                         `json:"hash"`
+	Header       string                         `json:"header"`
+	Body         string                         `json:"body"`
+	Receipts     string                         `json:"receipts"`
+	StateChanges map[string]*ImportAccountState `json:"stateChanges,omitempty"`
 }
 
 // ImportBlocksResponse represents the API response
@@ -172,11 +183,12 @@ func processFile(filename, rpcURL string, batchSize int, startBlock, endBlock ui
 
 		// Convert to import format (add 0x prefix if missing)
 		entry := ImportBlockEntry{
-			Height:   block.Number,
-			Hash:     addHexPrefix(block.Hash),
-			Header:   addHexPrefix(block.HeaderRLP),
-			Body:     addHexPrefix(block.BodyRLP),
-			Receipts: addHexPrefix(block.ReceiptsRLP),
+			Height:       block.Number,
+			Hash:         addHexPrefix(block.Hash),
+			Header:       addHexPrefix(block.HeaderRLP),
+			Body:         addHexPrefix(block.BodyRLP),
+			Receipts:     addHexPrefix(block.ReceiptsRLP),
+			StateChanges: block.StateChanges,
 		}
 
 		batch = append(batch, entry)

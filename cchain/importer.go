@@ -10,6 +10,20 @@ import (
 	"github.com/luxfi/migrate"
 )
 
+// ImportBlockEntry represents a single block for the migrate_importBlocks RPC
+type ImportBlockEntry struct {
+	Height   uint64 `json:"height"`
+	Hash     string `json:"hash"`
+	Header   string `json:"header"`
+	Body     string `json:"body"`
+	Receipts string `json:"receipts"`
+}
+
+// ImportBlocksRequest represents the request for importing blocks
+type ImportBlocksRequest struct {
+	Blocks []ImportBlockEntry `json:"blocks"`
+}
+
 // RPCImporter imports blocks to C-Chain via RPC
 type RPCImporter struct {
 	config migrate.ImporterConfig
@@ -38,18 +52,32 @@ func (i *RPCImporter) ImportConfig(config *migrate.Config) error {
 }
 
 func (i *RPCImporter) ImportBlock(block *migrate.BlockData) error {
-	// Use eth_sendRawBlock or similar RPC
-	// This is a placeholder - actual implementation depends on C-Chain RPC extensions
-	return i.sendRPCRequest("lux_importBlock", []interface{}{block})
+	return i.ImportBlocks([]*migrate.BlockData{block})
 }
 
 func (i *RPCImporter) ImportBlocks(blocks []*migrate.BlockData) error {
-	for _, block := range blocks {
-		if err := i.ImportBlock(block); err != nil {
-			return err
+	// Convert BlockData to ImportBlockEntry format for migrate_importBlocks RPC
+	entries := make([]ImportBlockEntry, len(blocks))
+	for idx, block := range blocks {
+		entries[idx] = ImportBlockEntry{
+			Height:   block.Number,
+			Hash:     block.Hash.Hex(),
+			Header:   addHexPrefix(block.Header),
+			Body:     addHexPrefix(block.Body),
+			Receipts: addHexPrefix(block.Receipts),
 		}
 	}
-	return nil
+
+	req := ImportBlocksRequest{Blocks: entries}
+	return i.sendRPCRequest("migrate_importBlocks", []interface{}{req})
+}
+
+// addHexPrefix converts byte slice to hex string with 0x prefix
+func addHexPrefix(data migrate.HexBytes) string {
+	if len(data) == 0 {
+		return "0x"
+	}
+	return "0x" + fmt.Sprintf("%x", []byte(data))
 }
 
 func (i *RPCImporter) ImportState(accounts []*migrate.Account, blockNumber uint64) error {

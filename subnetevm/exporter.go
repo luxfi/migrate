@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"sync"
 
@@ -22,189 +21,6 @@ import (
 
 // NOTE: Database key prefixes and encoding functions are defined in schema.go
 
-// decodeLegacyHeader decodes a header from RLP bytes, handling legacy formats
-// where optional fields like WithdrawalsHash may be encoded as empty bytes.
-func decodeLegacyHeader(data []byte) (*types.Header, error) {
-	// First try standard decoding
-	header := new(types.Header)
-	if err := rlp.DecodeBytes(data, header); err == nil {
-		return header, nil
-	}
-
-	// Try legacy format - decode as a list and handle manually
-	var fields []rlp.RawValue
-	if err := rlp.DecodeBytes(data, &fields); err != nil {
-		return nil, fmt.Errorf("failed to decode header fields: %w", err)
-	}
-
-	if len(fields) < 15 {
-		return nil, fmt.Errorf("header has too few fields: %d", len(fields))
-	}
-
-	h := &types.Header{}
-
-	// Decode required fields (0-14)
-	if err := rlp.DecodeBytes(fields[0], &h.ParentHash); err != nil {
-		return nil, fmt.Errorf("failed to decode ParentHash: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[1], &h.UncleHash); err != nil {
-		return nil, fmt.Errorf("failed to decode UncleHash: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[2], &h.Coinbase); err != nil {
-		return nil, fmt.Errorf("failed to decode Coinbase: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[3], &h.Root); err != nil {
-		return nil, fmt.Errorf("failed to decode Root: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[4], &h.TxHash); err != nil {
-		return nil, fmt.Errorf("failed to decode TxHash: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[5], &h.ReceiptHash); err != nil {
-		return nil, fmt.Errorf("failed to decode ReceiptHash: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[6], &h.Bloom); err != nil {
-		return nil, fmt.Errorf("failed to decode Bloom: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[7], &h.Difficulty); err != nil {
-		return nil, fmt.Errorf("failed to decode Difficulty: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[8], &h.Number); err != nil {
-		return nil, fmt.Errorf("failed to decode Number: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[9], &h.GasLimit); err != nil {
-		return nil, fmt.Errorf("failed to decode GasLimit: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[10], &h.GasUsed); err != nil {
-		return nil, fmt.Errorf("failed to decode GasUsed: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[11], &h.Time); err != nil {
-		return nil, fmt.Errorf("failed to decode Time: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[12], &h.Extra); err != nil {
-		return nil, fmt.Errorf("failed to decode Extra: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[13], &h.MixDigest); err != nil {
-		return nil, fmt.Errorf("failed to decode MixDigest: %w", err)
-	}
-	if err := rlp.DecodeBytes(fields[14], &h.Nonce); err != nil {
-		return nil, fmt.Errorf("failed to decode Nonce: %w", err)
-	}
-
-	// Decode optional fields (15+), ignoring empty values
-	if len(fields) > 15 {
-		if err := decodeOptionalBigInt(fields[15], &h.BaseFee); err != nil {
-			return nil, fmt.Errorf("failed to decode BaseFee: %w", err)
-		}
-	}
-	if len(fields) > 16 {
-		if err := decodeOptionalHash(fields[16], &h.WithdrawalsHash); err != nil {
-			return nil, fmt.Errorf("failed to decode WithdrawalsHash: %w", err)
-		}
-	}
-	if len(fields) > 17 {
-		if err := decodeOptionalUint64(fields[17], &h.BlobGasUsed); err != nil {
-			return nil, fmt.Errorf("failed to decode BlobGasUsed: %w", err)
-		}
-	}
-	if len(fields) > 18 {
-		if err := decodeOptionalUint64(fields[18], &h.ExcessBlobGas); err != nil {
-			return nil, fmt.Errorf("failed to decode ExcessBlobGas: %w", err)
-		}
-	}
-	if len(fields) > 19 {
-		if err := decodeOptionalHash(fields[19], &h.ParentBeaconRoot); err != nil {
-			return nil, fmt.Errorf("failed to decode ParentBeaconRoot: %w", err)
-		}
-	}
-
-	return h, nil
-}
-
-// decodeOptionalHash decodes an optional hash field, treating empty RLP as nil
-func decodeOptionalHash(data rlp.RawValue, out **common.Hash) error {
-	// Check if it's an empty string (0x80 in RLP)
-	if len(data) == 1 && data[0] == 0x80 {
-		*out = nil
-		return nil
-	}
-
-	// Try to decode as hash
-	var hash common.Hash
-	if err := rlp.DecodeBytes(data, &hash); err != nil {
-		// If decode fails and data is effectively empty, treat as nil
-		if err == io.EOF || (err != nil && len(data) <= 1) {
-			*out = nil
-			return nil
-		}
-		return err
-	}
-
-	// Check if it's an empty hash
-	if hash == (common.Hash{}) {
-		*out = nil
-	} else {
-		*out = &hash
-	}
-	return nil
-}
-
-// decodeOptionalBigInt decodes an optional big.Int field, treating empty RLP as nil
-func decodeOptionalBigInt(data rlp.RawValue, out **big.Int) error {
-	// Check if it's an empty string (0x80 in RLP)
-	if len(data) == 1 && data[0] == 0x80 {
-		*out = nil
-		return nil
-	}
-
-	var val big.Int
-	if err := rlp.DecodeBytes(data, &val); err != nil {
-		if err == io.EOF || (err != nil && len(data) <= 1) {
-			*out = nil
-			return nil
-		}
-		return err
-	}
-	*out = &val
-	return nil
-}
-
-// decodeOptionalUint64 decodes an optional uint64 field, treating empty RLP as nil
-func decodeOptionalUint64(data rlp.RawValue, out **uint64) error {
-	// Check if it's an empty string (0x80 in RLP)
-	if len(data) == 1 && data[0] == 0x80 {
-		*out = nil
-		return nil
-	}
-
-	var val uint64
-	if err := rlp.DecodeBytes(data, &val); err != nil {
-		if err == io.EOF || (err != nil && len(data) <= 1) {
-			*out = nil
-			return nil
-		}
-		return err
-	}
-	*out = &val
-	return nil
-}
-
-func init() {
-	// Register SubnetEVM exporter factory
-	migrate.RegisterExporterFactory(migrate.VMTypeSubnetEVM, func(config migrate.ExporterConfig) (migrate.Exporter, error) {
-		exp, err := NewExporter(config)
-		if err != nil {
-			return nil, err
-		}
-		// Auto-initialize if database path is provided
-		if config.DatabasePath != "" {
-			if err := exp.Init(config); err != nil {
-				return nil, err
-			}
-		}
-		return exp, nil
-	})
-}
-
 // Exporter exports blocks from SubnetEVM PebbleDB
 type Exporter struct {
 	config      migrate.ExporterConfig
@@ -217,8 +33,9 @@ type Exporter struct {
 	genesisHash common.Hash
 	headBlock   uint64
 
-	// Prefixed key support (for Avalanche-style databases)
-	keyPrefix []byte // 32-byte chain prefix, nil for standard databases
+	// Chain ID prefix for databases with prefixed keys (32 bytes)
+	// Some SubnetEVM databases (e.g., ZOO) have all keys prefixed with the chain ID
+	chainIDPrefix []byte
 }
 
 // NewExporter creates a new SubnetEVM exporter
@@ -248,12 +65,6 @@ func (e *Exporter) Init(config migrate.ExporterConfig) error {
 	}
 	e.db = db
 
-	// Detect key prefix format (Avalanche-style databases use 32-byte chain prefix)
-	if err := e.detectKeyPrefix(); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to detect key format: %w", err)
-	}
-
 	// Read chain info
 	if err := e.loadChainInfo(); err != nil {
 		db.Close()
@@ -266,8 +77,15 @@ func (e *Exporter) Init(config migrate.ExporterConfig) error {
 
 // loadChainInfo reads basic chain information from the database
 func (e *Exporter) loadChainInfo() error {
+	// First, try to detect if this database has prefixed keys
+	// by scanning for header prefix patterns
+	if err := e.detectChainIDPrefix(); err != nil {
+		// Not a fatal error - continue without prefix
+		e.chainIDPrefix = nil
+	}
+
 	// Read head block hash
-	headHash, err := e.get(headBlockKey)
+	headHash, err := e.get(e.prefixKey(headBlockKey))
 	if err != nil {
 		return fmt.Errorf("failed to read head block: %w", err)
 	}
@@ -291,7 +109,7 @@ func (e *Exporter) loadChainInfo() error {
 	e.genesisHash = genesisHash
 
 	// Read chain config
-	configData, err := e.get(configKey(genesisHash))
+	configData, err := e.get(e.prefixKey(configKey(genesisHash)))
 	if err == nil && len(configData) > 0 {
 		var chainConfig struct {
 			ChainID *big.Int `json:"chainId"`
@@ -302,6 +120,56 @@ func (e *Exporter) loadChainInfo() error {
 	}
 
 	return nil
+}
+
+// detectChainIDPrefix scans the database to detect if keys have a 32-byte chain ID prefix
+func (e *Exporter) detectChainIDPrefix() error {
+	// Scan for header prefix "h" - if we find keys starting with 32-byte prefix + "h", we have prefixed keys
+	iter, err := e.db.NewIter(&pebble.IterOptions{})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+
+	// Look for keys that match the pattern: [32-byte prefix]h[8-byte block number]n
+	// The "n" suffix indicates a header hash key for a block number
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+
+		// Check for prefixed header hash key pattern: [32 bytes][h][8 bytes][n]
+		// Total length: 32 + 1 + 8 + 1 = 42 bytes
+		if len(key) == ChainIDPrefixLen+1+8+1 {
+			if key[ChainIDPrefixLen] == 'h' && key[ChainIDPrefixLen+1+8] == 'n' {
+				// Found a prefixed header hash key - extract the prefix
+				e.chainIDPrefix = make([]byte, ChainIDPrefixLen)
+				copy(e.chainIDPrefix, key[:ChainIDPrefixLen])
+				return nil
+			}
+		}
+
+		// Also check for non-prefixed standard header hash key: h[8 bytes]n (10 bytes)
+		if len(key) == 1+8+1 && key[0] == 'h' && key[9] == 'n' {
+			// Standard non-prefixed format
+			e.chainIDPrefix = nil
+			return nil
+		}
+
+		// Check a reasonable number of keys
+		// Skip ahead if we haven't found it yet
+	}
+
+	return errors.New("could not detect key format")
+}
+
+// prefixKey adds the chain ID prefix to a key if the database uses prefixed keys
+func (e *Exporter) prefixKey(key []byte) []byte {
+	if len(e.chainIDPrefix) == 0 {
+		return key
+	}
+	prefixedKey := make([]byte, len(e.chainIDPrefix)+len(key))
+	copy(prefixedKey, e.chainIDPrefix)
+	copy(prefixedKey[len(e.chainIDPrefix):], key)
+	return prefixedKey
 }
 
 // GetInfo returns metadata about the source chain
@@ -524,15 +392,17 @@ func (e *Exporter) ExportState(ctx context.Context, blockNumber uint64) (<-chan 
 		defer close(errs)
 
 		// Check if snapshot is available
-		snapshotRoot, err := e.get(snapshotRootKey)
+		snapshotRoot, err := e.get(e.prefixKey(snapshotRootKey))
 		if err != nil || len(snapshotRoot) == 0 {
 			errs <- migrate.ErrStateNotAvailable
 			return
 		}
 
-		// Iterate through snapshot accounts (using prefixed keys if needed)
+		// Build prefixed bounds for snapshot iteration
 		lowerBound := e.prefixKey(snapshotAccountPrefix)
 		upperBound := e.prefixKey(append(snapshotAccountPrefix, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff))
+
+		// Iterate through snapshot accounts
 		iter, err := e.db.NewIter(&pebble.IterOptions{
 			LowerBound: lowerBound,
 			UpperBound: upperBound,
@@ -543,8 +413,8 @@ func (e *Exporter) ExportState(ctx context.Context, blockNumber uint64) (<-chan 
 		}
 		defer iter.Close()
 
-		// Calculate expected key length (with prefix if applicable)
-		prefixLen := len(e.keyPrefix)
+		// Expected key length includes prefix
+		prefixLen := len(e.chainIDPrefix)
 		expectedKeyLen := prefixLen + len(snapshotAccountPrefix) + common.HashLength
 
 		for iter.First(); iter.Valid(); iter.Next() {
@@ -560,7 +430,7 @@ func (e *Exporter) ExportState(ctx context.Context, blockNumber uint64) (<-chan 
 				continue
 			}
 
-			// Extract account hash (after prefix + snapshotAccountPrefix)
+			// Strip prefix and snapshot prefix to get account hash
 			accountHash := common.BytesToHash(key[prefixLen+len(snapshotAccountPrefix):])
 			value := iter.Value()
 
@@ -629,13 +499,13 @@ func (e *Exporter) decodeSnapshotAccount(data []byte) (*migrate.Account, error) 
 func (e *Exporter) readAccountStorage(accountHash common.Hash) map[common.Hash]common.Hash {
 	storage := make(map[common.Hash]common.Hash)
 
-	// Build prefixed key bounds
-	storageKey := append(snapshotStoragePrefix, accountHash.Bytes()...)
-	prefix := e.prefixKey(storageKey)
-	upperBound := e.prefixKey(append(storageKey, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff))
+	// Build prefixed storage key bounds
+	storagePrefix := append(snapshotStoragePrefix, accountHash.Bytes()...)
+	lowerBound := e.prefixKey(storagePrefix)
+	upperBound := e.prefixKey(append(storagePrefix, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff))
 
 	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
+		LowerBound: lowerBound,
 		UpperBound: upperBound,
 	})
 	if err != nil {
@@ -643,8 +513,8 @@ func (e *Exporter) readAccountStorage(accountHash common.Hash) map[common.Hash]c
 	}
 	defer iter.Close()
 
-	// Calculate expected key length with prefix
-	prefixLen := len(e.keyPrefix)
+	// Expected key length includes chain ID prefix
+	prefixLen := len(e.chainIDPrefix)
 	expectedKeyLen := prefixLen + len(snapshotStoragePrefix) + 2*common.HashLength
 
 	for iter.First(); iter.Valid(); iter.Next() {
@@ -653,7 +523,7 @@ func (e *Exporter) readAccountStorage(accountHash common.Hash) map[common.Hash]c
 			continue
 		}
 
-		// Extract storage hash (after prefix + snapshotStoragePrefix + accountHash)
+		// Strip chain ID prefix and storage prefix + account hash to get storage hash
 		storageHash := common.BytesToHash(key[prefixLen+len(snapshotStoragePrefix)+common.HashLength:])
 		value := iter.Value()
 
@@ -677,8 +547,8 @@ func (e *Exporter) ExportAccount(ctx context.Context, address common.Address, bl
 	// Hash the address for snapshot lookup
 	accountHash := crypto.Keccak256Hash(address.Bytes())
 
-	// Read from snapshot
-	key := append(snapshotAccountPrefix, accountHash.Bytes()...)
+	// Read from snapshot (with chain ID prefix)
+	key := e.prefixKey(append(snapshotAccountPrefix, accountHash.Bytes()...))
 	data, err := e.get(key)
 	if err != nil || len(data) == 0 {
 		return nil, migrate.ErrStateNotAvailable
@@ -813,60 +683,8 @@ func (e *Exporter) Close() error {
 
 // Database helper methods
 
-// detectKeyPrefix scans the database to detect if keys are prefixed with a chain ID
-// This is necessary for Avalanche-style databases where all keys have a 32-byte prefix
-func (e *Exporter) detectKeyPrefix() error {
-	iter, err := e.db.NewIter(nil)
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
-	// First, try to find "LastBlock" key directly (standard format)
-	_, closer, err := e.db.Get(headBlockKey)
-	if err == nil {
-		closer.Close()
-		e.keyPrefix = nil // Standard format, no prefix needed
-		return nil
-	}
-
-	// If not found, look for prefixed keys
-	// We need to find a key that ends with a known suffix like "LastBlock"
-	lastBlockSuffix := []byte("LastBlock")
-
-	for iter.First(); iter.Valid(); iter.Next() {
-		key := iter.Key()
-		// Look for keys that end with "LastBlock" and have a 32-byte prefix
-		if len(key) == 32+len(lastBlockSuffix) {
-			suffix := key[32:]
-			if string(suffix) == "LastBlock" {
-				// Found it - extract the prefix
-				prefix := make([]byte, 32)
-				copy(prefix, key[:32])
-				e.keyPrefix = prefix
-				return nil
-			}
-		}
-	}
-
-	// If we still haven't found it, the database might be empty or in an unknown format
-	// Return an error to indicate we couldn't detect the format
-	return errors.New("could not detect database key format - neither standard nor prefixed LastBlock key found")
-}
-
-// prefixKey adds the chain prefix to a key if needed
-func (e *Exporter) prefixKey(key []byte) []byte {
-	if e.keyPrefix == nil {
-		return key
-	}
-	return append(e.keyPrefix, key...)
-}
-
 func (e *Exporter) get(key []byte) ([]byte, error) {
-	// Apply prefix if needed
-	prefixedKey := e.prefixKey(key)
-
-	val, closer, err := e.db.Get(prefixedKey)
+	val, closer, err := e.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, nil
@@ -885,7 +703,7 @@ func (e *Exporter) get(key []byte) ([]byte, error) {
 
 // readCanonicalHash retrieves the hash assigned to a canonical block number
 func (e *Exporter) readCanonicalHash(number uint64) common.Hash {
-	data, err := e.get(headerHashKey(number))
+	data, err := e.get(e.prefixKey(headerHashKey(number)))
 	if err != nil || len(data) == 0 {
 		return common.Hash{}
 	}
@@ -894,7 +712,7 @@ func (e *Exporter) readCanonicalHash(number uint64) common.Hash {
 
 // readHeaderNumber returns the header number assigned to a hash
 func (e *Exporter) readHeaderNumber(hash common.Hash) (uint64, error) {
-	data, err := e.get(headerNumberKey(hash))
+	data, err := e.get(e.prefixKey(headerNumberKey(hash)))
 	if err != nil || len(data) == 0 {
 		return 0, errors.New("header number not found")
 	}
@@ -910,14 +728,13 @@ func (e *Exporter) readHeaderNumber(hash common.Hash) (uint64, error) {
 
 // readHeader retrieves the block header corresponding to the hash
 func (e *Exporter) readHeader(hash common.Hash, number uint64) *types.Header {
-	data, err := e.get(headerKey(number, hash))
+	data, err := e.get(e.prefixKey(headerKey(number, hash)))
 	if err != nil || len(data) == 0 {
 		return nil
 	}
 
-	// Use legacy decoder that handles SubnetEVM format with empty optional fields
-	header, err := decodeLegacyHeader(data)
-	if err != nil {
+	header := new(types.Header)
+	if err := rlp.DecodeBytes(data, header); err != nil {
 		return nil
 	}
 	return header
@@ -925,7 +742,7 @@ func (e *Exporter) readHeader(hash common.Hash, number uint64) *types.Header {
 
 // readBody retrieves the block body corresponding to the hash
 func (e *Exporter) readBody(hash common.Hash, number uint64) *types.Body {
-	data, err := e.get(blockBodyKey(number, hash))
+	data, err := e.get(e.prefixKey(blockBodyKey(number, hash)))
 	if err != nil || len(data) == 0 {
 		return nil
 	}
@@ -939,7 +756,7 @@ func (e *Exporter) readBody(hash common.Hash, number uint64) *types.Body {
 
 // readReceiptsRLP retrieves the block receipts in RLP encoding
 func (e *Exporter) readReceiptsRLP(hash common.Hash, number uint64) []byte {
-	data, err := e.get(blockReceiptsKey(number, hash))
+	data, err := e.get(e.prefixKey(blockReceiptsKey(number, hash)))
 	if err != nil {
 		return nil
 	}
@@ -949,12 +766,12 @@ func (e *Exporter) readReceiptsRLP(hash common.Hash, number uint64) []byte {
 // readCode retrieves the contract code of the provided code hash
 func (e *Exporter) readCode(hash common.Hash) []byte {
 	// Try prefixed code scheme first
-	data, err := e.get(codeKey(hash))
+	data, err := e.get(e.prefixKey(codeKey(hash)))
 	if err == nil && len(data) > 0 {
 		return data
 	}
 
 	// Fall back to legacy scheme (hash as key)
-	data, _ = e.get(hash.Bytes())
+	data, _ = e.get(e.prefixKey(hash.Bytes()))
 	return data
 }
