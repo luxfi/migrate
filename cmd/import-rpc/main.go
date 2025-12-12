@@ -4,8 +4,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,23 +15,41 @@ import (
 	"time"
 )
 
-// JSONLBlock represents a block in our export JSONL format (PascalCase, base64)
+// ImportAccountState matches the MigrateAPI ImportAccountState format
+type ImportAccountState struct {
+	Balance  string            `json:"balance,omitempty"`  // hex-encoded balance
+	Nonce    uint64            `json:"nonce,omitempty"`
+	Code     string            `json:"code,omitempty"`     // hex-encoded code
+	Storage  map[string]string `json:"storage,omitempty"`  // key -> value (hex)
+}
+
+// JSONLBlock represents a block in our export JSONL format (lowercase, hex with 0x prefix)
+// This matches the MigrateAPI ImportBlockEntry format directly
 type JSONLBlock struct {
-	Number      uint64 `json:"Number"`
-	Hash        string `json:"Hash"`
-	ParentHash  string `json:"ParentHash"`
-	Header      string `json:"Header"`   // base64-encoded RLP
-	Body        string `json:"Body"`     // base64-encoded RLP
-	Receipts    string `json:"Receipts"` // base64-encoded RLP
+	Height       uint64                         `json:"height"`
+	Hash         string                         `json:"hash"`
+	Header       string                         `json:"header"`       // hex-encoded RLP with 0x prefix
+	Body         string                         `json:"body"`         // hex-encoded RLP with 0x prefix
+	Receipts     string                         `json:"receipts"`     // hex-encoded RLP with 0x prefix
+	StateChanges map[string]*JSONLAccountState  `json:"stateChanges,omitempty"` // address -> account state
+}
+
+// JSONLAccountState represents account state in export format
+type JSONLAccountState struct {
+	Balance  string            `json:"balance,omitempty"`
+	Nonce    uint64            `json:"nonce,omitempty"`
+	Code     string            `json:"code,omitempty"`
+	Storage  map[string]string `json:"storage,omitempty"`
 }
 
 // ImportBlockEntry is the format expected by migrate_importBlocks (lowercase, hex)
 type ImportBlockEntry struct {
-	Height   uint64 `json:"height"`
-	Hash     string `json:"hash"`
-	Header   string `json:"header"`   // hex-encoded RLP
-	Body     string `json:"body"`     // hex-encoded RLP
-	Receipts string `json:"receipts"` // hex-encoded RLP
+	Height       uint64                         `json:"height"`
+	Hash         string                         `json:"hash"`
+	Header       string                         `json:"header"`       // hex-encoded RLP
+	Body         string                         `json:"body"`         // hex-encoded RLP
+	Receipts     string                         `json:"receipts"`     // hex-encoded RLP
+	StateChanges map[string]*ImportAccountState `json:"stateChanges,omitempty"` // address -> account state
 }
 
 // RPCRequest represents a JSON-RPC request
@@ -65,44 +81,53 @@ type ImportBlocksResponse struct {
 	Errors   []string `json:"errors,omitempty"`
 }
 
-func base64ToHex(b64 string) (string, error) {
-	if b64 == "" {
-		return "", nil
+// ensureHexPrefix ensures the string has 0x prefix
+func ensureHexPrefix(s string) string {
+	if s == "" {
+		return ""
 	}
-	data, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return "", fmt.Errorf("base64 decode failed: %w", err)
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		return s
 	}
-	return "0x" + hex.EncodeToString(data), nil
+	return "0x" + s
 }
 
+// convertBlock converts JSONL block to MigrateAPI format
 func convertBlock(jsonl *JSONLBlock) (*ImportBlockEntry, error) {
-	header, err := base64ToHex(jsonl.Header)
-	if err != nil {
-		return nil, fmt.Errorf("header: %w", err)
-	}
-	body, err := base64ToHex(jsonl.Body)
-	if err != nil {
-		return nil, fmt.Errorf("body: %w", err)
-	}
-	receipts, err := base64ToHex(jsonl.Receipts)
-	if err != nil {
-		return nil, fmt.Errorf("receipts: %w", err)
+	entry := &ImportBlockEntry{
+		Height:   jsonl.Height,
+		Hash:     ensureHexPrefix(jsonl.Hash),
+		Header:   ensureHexPrefix(jsonl.Header),
+		Body:     ensureHexPrefix(jsonl.Body),
+		Receipts: ensureHexPrefix(jsonl.Receipts),
 	}
 
-	// Ensure hash has 0x prefix
-	hash := jsonl.Hash
-	if !strings.HasPrefix(hash, "0x") {
-		hash = "0x" + hash
+	// Convert state changes if present
+	if len(jsonl.StateChanges) > 0 {
+		entry.StateChanges = make(map[string]*ImportAccountState)
+		for addr, state := range jsonl.StateChanges {
+			entry.StateChanges[ensureHexPrefix(addr)] = &ImportAccountState{
+				Balance: ensureHexPrefix(state.Balance),
+				Nonce:   state.Nonce,
+				Code:    ensureHexPrefix(state.Code),
+				Storage: convertStorage(state.Storage),
+			}
+		}
 	}
 
-	return &ImportBlockEntry{
-		Height:   jsonl.Number,
-		Hash:     hash,
-		Header:   header,
-		Body:     body,
-		Receipts: receipts,
-	}, nil
+	return entry, nil
+}
+
+// convertStorage converts storage map ensuring hex prefixes
+func convertStorage(storage map[string]string) map[string]string {
+	if storage == nil {
+		return nil
+	}
+	result := make(map[string]string)
+	for k, v := range storage {
+		result[ensureHexPrefix(k)] = ensureHexPrefix(v)
+	}
+	return result
 }
 
 func sendRPCRequest(rpcURL string, method string, params []interface{}) (json.RawMessage, error) {
@@ -213,17 +238,17 @@ func main() {
 		}
 
 		// Skip blocks outside range
-		if jsonBlock.Number < *startBlock {
+		if jsonBlock.Height < *startBlock {
 			continue
 		}
-		if *endBlock > 0 && jsonBlock.Number > *endBlock {
+		if *endBlock > 0 && jsonBlock.Height > *endBlock {
 			break
 		}
 
 		// Convert to API format
 		entry, err := convertBlock(&jsonBlock)
 		if err != nil {
-			log.Printf("Block %d: convert error: %v", jsonBlock.Number, err)
+			log.Printf("Block %d: convert error: %v", jsonBlock.Height, err)
 			totalFailed++
 			continue
 		}
