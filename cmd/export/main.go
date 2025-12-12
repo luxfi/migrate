@@ -26,7 +26,8 @@ func main() {
 	if *dbPath == "" || *outputPath == "" {
 		fmt.Println("Usage: export -db <path> -output <file.jsonl> [-start N] [-end N]")
 		fmt.Println()
-		fmt.Println("Export blockchain blocks from PebbleDB to JSONL format.")
+		fmt.Println("Export blockchain blocks with full state from PebbleDB to JSONL format.")
+		fmt.Println("State is always included with genesis block for balance queries.")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  -db      Path to PebbleDB database directory")
@@ -80,11 +81,11 @@ func main() {
 	}
 	defer writer.Close()
 
-	fmt.Printf("Exporting blocks %d to %d...\n", *startBlock, end)
+	fmt.Printf("Exporting blocks %d to %d with full state...\n", *startBlock, end)
 
-	// Export blocks
+	// Export blocks with full state (state attached to genesis block)
 	ctx := context.Background()
-	blocks, errs := exporter.ExportBlocks(ctx, *startBlock, end)
+	blocks, errs := exporter.ExportBlocksWithState(ctx, *startBlock, end)
 
 	var count uint64
 	for block := range blocks {

@@ -18,6 +18,10 @@ type Exporter interface {
 	// Returns channels for streaming blocks and any errors
 	ExportBlocks(ctx context.Context, start, end uint64) (<-chan *BlockData, <-chan error)
 
+	// ExportBlocksWithState exports blocks with full state attached to genesis block
+	// This is required for importing state that allows balance queries
+	ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *BlockData, <-chan error)
+
 	// ExportState exports state at a specific block height
 	// Returns channels for streaming accounts and any errors
 	ExportState(ctx context.Context, blockNumber uint64) (<-chan *Account, <-chan error)

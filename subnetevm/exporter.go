@@ -19,6 +19,23 @@ import (
 	"github.com/luxfi/migrate"
 )
 
+func init() {
+	// Register SubnetEVM exporter factory
+	migrate.RegisterExporterFactory(migrate.VMTypeSubnetEVM, func(config migrate.ExporterConfig) (migrate.Exporter, error) {
+		exp, err := NewExporter(config)
+		if err != nil {
+			return nil, err
+		}
+		// Auto-initialize if database path is provided
+		if config.DatabasePath != "" {
+			if err := exp.Init(config); err != nil {
+				return nil, err
+			}
+		}
+		return exp, nil
+	})
+}
+
 // NOTE: Database key prefixes and encoding functions are defined in schema.go
 
 // Exporter exports blocks from SubnetEVM PebbleDB
@@ -257,72 +274,68 @@ func (e *Exporter) exportBlock(number uint64) (*migrate.BlockData, error) {
 		return nil, migrate.ErrBlockNotFound
 	}
 
-	// Read header
-	header := e.readHeader(hash, number)
-	if header == nil {
+	// Read header RLP directly from database - don't decode/re-encode
+	// This preserves compatibility with older header formats that may not
+	// have all fields like WithdrawalsHash
+	headerRLP := e.readHeaderRLP(hash, number)
+	if headerRLP == nil {
 		return nil, fmt.Errorf("header not found for block %d", number)
 	}
 
-	// Read body
-	body := e.readBody(hash, number)
+	// Read body RLP directly
+	bodyRLP := e.readBodyRLP(hash, number)
 
-	// Read receipts (optional, may not exist for all blocks)
+	// Read receipts RLP (optional, may not exist for all blocks)
 	receiptsRLP := e.readReceiptsRLP(hash, number)
 
-	// Encode header to RLP
-	headerRLP, err := rlp.EncodeToBytes(header)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode header: %w", err)
-	}
+	// Try to decode header for metadata (non-fatal if fails)
+	// This allows us to extract metadata fields even if full decode fails
+	header := e.readHeader(hash, number)
 
-	// Encode body to RLP
-	var bodyRLP []byte
-	if body != nil {
-		bodyRLP, err = rlp.EncodeToBytes(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode body: %w", err)
-		}
-	}
-
-	// Build block data
+	// Build block data with raw RLP
 	blockData := &migrate.BlockData{
-		Number:           number,
-		Hash:             hash,
-		ParentHash:       header.ParentHash,
-		Timestamp:        header.Time,
-		StateRoot:        header.Root,
-		ReceiptsRoot:     header.ReceiptHash,
-		TransactionsRoot: header.TxHash,
-		GasLimit:         header.GasLimit,
-		GasUsed:          header.GasUsed,
-		Difficulty:       header.Difficulty,
-		Coinbase:         header.Coinbase,
-		Nonce:            header.Nonce,
-		MixHash:          header.MixDigest,
-		ExtraData:        header.Extra,
-		BaseFee:          header.BaseFee,
-		Header:           headerRLP,
-		Body:             bodyRLP,
-		Receipts:         receiptsRLP,
-		Extensions:       make(map[string]interface{}),
+		Number:     number,
+		Hash:       hash,
+		Header:     headerRLP,
+		Body:       bodyRLP,
+		Receipts:   receiptsRLP,
+		Extensions: make(map[string]interface{}),
 	}
 
-	// Process transactions if body exists
-	if body != nil {
-		blockData.Transactions = make([]*migrate.Transaction, len(body.Transactions))
-		for i, tx := range body.Transactions {
-			blockData.Transactions[i] = e.convertTransaction(tx)
-		}
+	// Add header metadata if we could decode it
+	if header != nil {
+		blockData.ParentHash = header.ParentHash
+		blockData.Timestamp = header.Time
+		blockData.StateRoot = header.Root
+		blockData.ReceiptsRoot = header.ReceiptHash
+		blockData.TransactionsRoot = header.TxHash
+		blockData.GasLimit = header.GasLimit
+		blockData.GasUsed = header.GasUsed
+		blockData.Difficulty = header.Difficulty
+		blockData.Coinbase = header.Coinbase
+		blockData.Nonce = header.Nonce
+		blockData.MixHash = header.MixDigest
+		blockData.ExtraData = header.Extra
+		blockData.BaseFee = header.BaseFee
 
-		// Encode uncle headers
-		if len(body.Uncles) > 0 {
-			blockData.UncleHeaders = make([][]byte, len(body.Uncles))
-			for i, uncle := range body.Uncles {
-				uncleRLP, err := rlp.EncodeToBytes(uncle)
-				if err != nil {
-					return nil, fmt.Errorf("failed to encode uncle: %w", err)
+		// Also read body for transactions metadata
+		body := e.readBody(hash, number)
+		if body != nil {
+			blockData.Transactions = make([]*migrate.Transaction, len(body.Transactions))
+			for i, tx := range body.Transactions {
+				blockData.Transactions[i] = e.convertTransaction(tx)
+			}
+
+			// Encode uncle headers
+			if len(body.Uncles) > 0 {
+				blockData.UncleHeaders = make([][]byte, len(body.Uncles))
+				for i, uncle := range body.Uncles {
+					uncleRLP, err := rlp.EncodeToBytes(uncle)
+					if err != nil {
+						return nil, fmt.Errorf("failed to encode uncle: %w", err)
+					}
+					blockData.UncleHeaders[i] = uncleRLP
 				}
-				blockData.UncleHeaders[i] = uncleRLP
 			}
 		}
 	}
@@ -370,6 +383,147 @@ func (e *Exporter) convertTransaction(tx *types.Transaction) *migrate.Transactio
 	}
 
 	return migrateTx
+}
+
+// ExportBlocksWithState exports blocks in a range with full state attached to genesis block
+// This is the recommended method for full state migration - state is exported with block 0,
+// then subsequent blocks can be re-executed to rebuild state incrementally
+func (e *Exporter) ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *migrate.BlockData, <-chan error) {
+	blocks := make(chan *migrate.BlockData, 100)
+	errs := make(chan error, 1)
+
+	if start > end {
+		errs <- migrate.ErrInvalidBlockRange
+		close(blocks)
+		close(errs)
+		return blocks, errs
+	}
+
+	e.mu.RLock()
+	if !e.initialized {
+		e.mu.RUnlock()
+		errs <- migrate.ErrNotInitialized
+		close(blocks)
+		close(errs)
+		return blocks, errs
+	}
+	e.mu.RUnlock()
+
+	go func() {
+		defer close(blocks)
+		defer close(errs)
+
+		for height := start; height <= end; height++ {
+			select {
+			case <-ctx.Done():
+				errs <- ctx.Err()
+				return
+			default:
+				block, err := e.exportBlock(height)
+				if err != nil {
+					errs <- fmt.Errorf("failed to export block %d: %w", height, err)
+					return
+				}
+				if block == nil {
+					errs <- fmt.Errorf("block %d not found", height)
+					return
+				}
+
+				// For genesis block (block 0), attach full state
+				if height == 0 {
+					stateChanges, err := e.exportFullState()
+					if err != nil {
+						errs <- fmt.Errorf("failed to export state for genesis: %w", err)
+						return
+					}
+					block.StateChanges = stateChanges
+				}
+
+				blocks <- block
+			}
+		}
+	}()
+
+	return blocks, errs
+}
+
+// exportFullState exports all accounts from the snapshot as a map
+func (e *Exporter) exportFullState() (map[common.Address]*migrate.Account, error) {
+	stateChanges := make(map[common.Address]*migrate.Account)
+
+	// Check if snapshot is available
+	snapshotRoot, err := e.get(e.prefixKey(snapshotRootKey))
+	if err != nil || len(snapshotRoot) == 0 {
+		return nil, migrate.ErrStateNotAvailable
+	}
+
+	// Build prefixed bounds for snapshot iteration
+	lowerBound := e.prefixKey(snapshotAccountPrefix)
+	upperBound := e.prefixKey(append(snapshotAccountPrefix, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff))
+
+	// Iterate through snapshot accounts
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create iterator: %w", err)
+	}
+	defer iter.Close()
+
+	// Expected key length includes prefix
+	prefixLen := len(e.chainIDPrefix)
+	expectedKeyLen := prefixLen + len(snapshotAccountPrefix) + common.HashLength
+
+	accountCount := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) != expectedKeyLen {
+			continue
+		}
+
+		// Strip prefix and snapshot prefix to get account hash
+		accountHash := common.BytesToHash(key[prefixLen+len(snapshotAccountPrefix):])
+		value := iter.Value()
+
+		// Decode slim account format
+		account, err := e.decodeSnapshotAccount(value)
+		if err != nil {
+			continue // Skip malformed accounts
+		}
+
+		// Get actual address from preimage
+		address := e.readPreimage(accountHash)
+		if address == (common.Address{}) {
+			// Fallback to address approximation if preimage not found
+			address = common.BytesToAddress(accountHash.Bytes()[12:])
+		}
+		account.Address = address
+
+		// Read code if it exists
+		if account.CodeHash != (common.Hash{}) && account.CodeHash != crypto.Keccak256Hash(nil) {
+			code := e.readCode(account.CodeHash)
+			account.Code = code
+		}
+
+		// Read storage if available
+		account.Storage = e.readAccountStorage(accountHash)
+
+		stateChanges[address] = account
+		accountCount++
+
+		// Progress logging every 100k accounts
+		if accountCount%100000 == 0 {
+			fmt.Printf("  Exported %d accounts...\n", accountCount)
+		}
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("iterator error: %w", err)
+	}
+
+	fmt.Printf("  Total accounts exported: %d\n", accountCount)
+	return stateChanges, nil
 }
 
 // ExportState exports state at a specific block height
@@ -439,7 +593,13 @@ func (e *Exporter) ExportState(ctx context.Context, blockNumber uint64) (<-chan 
 			if err != nil {
 				continue // Skip malformed accounts
 			}
-			account.Address = common.BytesToAddress(accountHash.Bytes()[12:]) // Approximation, actual address needs preimage
+			// Get actual address from preimage
+			address := e.readPreimage(accountHash)
+			if address == (common.Address{}) {
+				// Fallback to address approximation if preimage not found
+				address = common.BytesToAddress(accountHash.Bytes()[12:])
+			}
+			account.Address = address
 
 			// Read code if it exists
 			if account.CodeHash != (common.Hash{}) && account.CodeHash != crypto.Keccak256Hash(nil) {
@@ -754,6 +914,24 @@ func (e *Exporter) readBody(hash common.Hash, number uint64) *types.Body {
 	return body
 }
 
+// readHeaderRLP retrieves the block header in RLP encoding without decoding
+func (e *Exporter) readHeaderRLP(hash common.Hash, number uint64) []byte {
+	data, err := e.get(e.prefixKey(headerKey(number, hash)))
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// readBodyRLP retrieves the block body in RLP encoding without decoding
+func (e *Exporter) readBodyRLP(hash common.Hash, number uint64) []byte {
+	data, err := e.get(e.prefixKey(blockBodyKey(number, hash)))
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
 // readReceiptsRLP retrieves the block receipts in RLP encoding
 func (e *Exporter) readReceiptsRLP(hash common.Hash, number uint64) []byte {
 	data, err := e.get(e.prefixKey(blockReceiptsKey(number, hash)))
@@ -774,4 +952,18 @@ func (e *Exporter) readCode(hash common.Hash) []byte {
 	// Fall back to legacy scheme (hash as key)
 	data, _ = e.get(e.prefixKey(hash.Bytes()))
 	return data
+}
+
+// readPreimage retrieves the preimage (original address) for a hash
+func (e *Exporter) readPreimage(hash common.Hash) common.Address {
+	data, err := e.get(e.prefixKey(preimageKey(hash)))
+	if err == nil && len(data) == common.AddressLength {
+		return common.BytesToAddress(data)
+	}
+	// Fallback: try without prefix
+	data, err = e.get(preimageKey(hash))
+	if err == nil && len(data) == common.AddressLength {
+		return common.BytesToAddress(data)
+	}
+	return common.Address{}
 }

@@ -23,6 +23,7 @@ var (
 	configPrefix        = []byte("ethereum-config-")
 	codePrefix          = []byte("c") // CodePrefix + code hash -> account code
 	txLookupPrefix      = []byte("l") // txLookupPrefix + hash -> transaction lookup metadata
+	preimagePrefix      = []byte("secure-key-") // PreimagePrefix + hash -> preimage (address)
 
 	// Snapshot prefixes
 	snapshotAccountPrefix = []byte("a") // SnapshotAccountPrefix + account hash -> account trie value
@@ -68,6 +69,10 @@ func codeKey(hash common.Hash) []byte {
 
 func txLookupKey(hash common.Hash) []byte {
 	return append(txLookupPrefix, hash.Bytes()...)
+}
+
+func preimageKey(hash common.Hash) []byte {
+	return append(preimagePrefix, hash.Bytes()...)
 }
 
 func accountSnapshotKey(hash common.Hash) []byte {
