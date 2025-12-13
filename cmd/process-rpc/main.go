@@ -6,8 +6,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,14 +17,13 @@ import (
 	"time"
 )
 
-// JSONLBlock represents a block in our export JSONL format (PascalCase, base64)
+// JSONLBlock represents a block in our export JSONL format (lowercase, hex)
 type JSONLBlock struct {
-	Number     uint64 `json:"Number"`
-	Hash       string `json:"Hash"`
-	ParentHash string `json:"ParentHash"`
-	Header     string `json:"Header"`   // base64-encoded RLP
-	Body       string `json:"Body"`     // base64-encoded RLP
-	Receipts   string `json:"Receipts"` // base64-encoded RLP
+	Number     uint64 `json:"number"`
+	Hash       string `json:"hash"`
+	HeaderRLP  string `json:"header_rlp"`   // hex-encoded RLP
+	BodyRLP    string `json:"body_rlp"`     // hex-encoded RLP
+	ReceiptsRLP string `json:"receipts_rlp"` // hex-encoded RLP
 }
 
 // ImportBlockEntry is the format expected by migrate_processBlocks (lowercase, hex)
@@ -71,43 +68,24 @@ type ProcessBlocksResponse struct {
 	Errors      []string `json:"errors,omitempty"`
 }
 
-func base64ToHex(b64 string) (string, error) {
-	if b64 == "" {
-		return "", nil
+// ensureHexPrefix ensures a hex string has 0x prefix
+func ensureHexPrefix(s string) string {
+	if s == "" {
+		return ""
 	}
-	data, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return "", fmt.Errorf("base64 decode failed: %w", err)
+	if !strings.HasPrefix(s, "0x") {
+		return "0x" + s
 	}
-	return "0x" + hex.EncodeToString(data), nil
+	return s
 }
 
 func convertBlock(jsonl *JSONLBlock) (*ImportBlockEntry, error) {
-	header, err := base64ToHex(jsonl.Header)
-	if err != nil {
-		return nil, fmt.Errorf("header: %w", err)
-	}
-	body, err := base64ToHex(jsonl.Body)
-	if err != nil {
-		return nil, fmt.Errorf("body: %w", err)
-	}
-	receipts, err := base64ToHex(jsonl.Receipts)
-	if err != nil {
-		return nil, fmt.Errorf("receipts: %w", err)
-	}
-
-	// Ensure hash has 0x prefix
-	hash := jsonl.Hash
-	if !strings.HasPrefix(hash, "0x") {
-		hash = "0x" + hash
-	}
-
 	return &ImportBlockEntry{
 		Height:   jsonl.Number,
-		Hash:     hash,
-		Header:   header,
-		Body:     body,
-		Receipts: receipts,
+		Hash:     ensureHexPrefix(jsonl.Hash),
+		Header:   ensureHexPrefix(jsonl.HeaderRLP),
+		Body:     ensureHexPrefix(jsonl.BodyRLP),
+		Receipts: ensureHexPrefix(jsonl.ReceiptsRLP),
 	}, nil
 }
 
