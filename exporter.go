@@ -29,6 +29,16 @@ type Exporter interface {
 	// ExportAccount exports a specific account's state
 	ExportAccount(ctx context.Context, address common.Address, blockNumber uint64) (*Account, error)
 
+	// ExportStateTrie exports raw state trie KV pairs for direct database import.
+	// This is the ONLY correct way to migrate state - RPC block import cannot recreate state.
+	// Exports the following prefixes:
+	//   - A* (account trie nodes): namespace + 'A' + hexPath → trie node data
+	//   - O* (storage trie nodes): namespace + 'O' + accountHash + hexPath → trie node data
+	//   - c* (code blobs): namespace + 'c' + codeHash → bytecode
+	//   - L* (state ID mappings, optional): namespace + 'L' + stateRoot → stateID
+	// The key/value pairs are raw bytes - the importer must write them exactly as received.
+	ExportStateTrie(ctx context.Context) (<-chan *TrieNode, <-chan error)
+
 	// ExportConfig exports chain configuration (genesis, network ID, etc.)
 	ExportConfig() (*Config, error)
 

@@ -526,6 +526,96 @@ type Account struct {
 	Storage     map[common.Hash]common.Hash
 }
 
+// StateChange represents a state change for a single account in a block.
+// This is the diff format for per-block state migration:
+// - For genesis (block 0): full account snapshot (not a diff)
+// - For blocks N>0: post-state diff relative to parent
+type StateChange struct {
+	// Address of the account (20 bytes, hex with 0x prefix)
+	Address common.Address `json:"address,omitempty"`
+
+	// Account fields - set to new values after this block
+	Nonce   uint64   `json:"nonce"`
+	Balance *big.Int `json:"balance"`
+
+	// Code - only included if code changed this block (contract creation)
+	Code []byte `json:"code,omitempty"`
+
+	// Storage - map of slot -> value for changed slots
+	// Zero value (0x0...0) means delete the slot from storage trie
+	Storage map[common.Hash]common.Hash `json:"storage,omitempty"`
+
+	// Deleted - true if account was self-destructed/deleted
+	// If true, remove account from state trie entirely
+	Deleted bool `json:"deleted,omitempty"`
+}
+
+// stateChangeJSON is the JSON representation with hex encoding
+type stateChangeJSON struct {
+	Address string            `json:"address,omitempty"`
+	Nonce   uint64            `json:"nonce,omitempty"`
+	Balance string            `json:"balance,omitempty"` // hex-encoded
+	Code    string            `json:"code,omitempty"`    // hex-encoded
+	Storage map[string]string `json:"storage,omitempty"` // hex keys and values
+	Deleted bool              `json:"deleted,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler for StateChange with hex encoding
+func (s *StateChange) MarshalJSON() ([]byte, error) {
+	sj := stateChangeJSON{
+		Nonce:   s.Nonce,
+		Deleted: s.Deleted,
+	}
+
+	if s.Address != (common.Address{}) {
+		sj.Address = s.Address.Hex()
+	}
+	if s.Balance != nil && s.Balance.Sign() >= 0 {
+		sj.Balance = "0x" + s.Balance.Text(16)
+	}
+	if len(s.Code) > 0 {
+		sj.Code = "0x" + common.Bytes2Hex(s.Code)
+	}
+	if len(s.Storage) > 0 {
+		sj.Storage = make(map[string]string)
+		for k, v := range s.Storage {
+			sj.Storage[k.Hex()] = v.Hex()
+		}
+	}
+
+	return json.Marshal(sj)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for StateChange with hex decoding
+func (s *StateChange) UnmarshalJSON(data []byte) error {
+	var sj stateChangeJSON
+	if err := json.Unmarshal(data, &sj); err != nil {
+		return err
+	}
+
+	if sj.Address != "" {
+		s.Address = common.HexToAddress(sj.Address)
+	}
+	s.Nonce = sj.Nonce
+	s.Deleted = sj.Deleted
+
+	if sj.Balance != "" {
+		s.Balance = new(big.Int)
+		s.Balance.SetString(strings.TrimPrefix(sj.Balance, "0x"), 16)
+	}
+	if sj.Code != "" {
+		s.Code = common.FromHex(sj.Code)
+	}
+	if len(sj.Storage) > 0 {
+		s.Storage = make(map[common.Hash]common.Hash)
+		for k, v := range sj.Storage {
+			s.Storage[common.HexToHash(k)] = common.HexToHash(v)
+		}
+	}
+
+	return nil
+}
+
 // accountJSON is the JSON representation of Account with hex encoding
 type accountJSON struct {
 	Address     string            `json:"address,omitempty"`
@@ -746,4 +836,119 @@ type MigrationResult struct {
 	SourceStateRoot common.Hash
 	DestStateRoot   common.Hash
 	StateMatches    bool
+}
+
+// TrieNodeType identifies the type of trie node
+type TrieNodeType string
+
+const (
+	TrieNodeTypeAccount TrieNodeType = "account" // Account trie node (PathDB: "A" prefix)
+	TrieNodeTypeStorage TrieNodeType = "storage" // Storage trie node (PathDB: "O" prefix)
+	TrieNodeTypeCode    TrieNodeType = "code"    // Contract code (prefix: "c")
+	TrieNodeTypeStateID TrieNodeType = "stateID" // State ID mapping (prefix: "L")
+)
+
+// TrieNode represents a raw state trie node for direct database import.
+// This is used for raw KV export/import which is required for state migration
+// since RPC block import cannot recreate state (only headers/bodies/receipts).
+type TrieNode struct {
+	// Type of trie node
+	Type TrieNodeType `json:"type"`
+
+	// Raw database key (includes prefix: A, O, c, or L)
+	Key []byte `json:"key"`
+
+	// Raw database value (trie node data, code bytes, or state ID)
+	Value []byte `json:"value"`
+
+	// Optional metadata
+	Path    []byte      `json:"path,omitempty"`    // Hex path for PathDB nodes
+	Owner   common.Hash `json:"owner,omitempty"`   // Account hash for storage trie nodes
+	StateID uint64      `json:"stateId,omitempty"` // State ID for L* entries
+}
+
+// trieNodeJSON is the JSON representation with hex encoding
+type trieNodeJSON struct {
+	Type    TrieNodeType `json:"type"`
+	Key     string       `json:"key"`   // hex-encoded
+	Value   string       `json:"value"` // hex-encoded
+	Path    string       `json:"path,omitempty"`
+	Owner   string       `json:"owner,omitempty"`
+	StateID uint64       `json:"stateId,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler for TrieNode
+func (t *TrieNode) MarshalJSON() ([]byte, error) {
+	tj := trieNodeJSON{
+		Type:    t.Type,
+		Key:     "0x" + hex.EncodeToString(t.Key),
+		Value:   "0x" + hex.EncodeToString(t.Value),
+		StateID: t.StateID,
+	}
+	if len(t.Path) > 0 {
+		tj.Path = "0x" + hex.EncodeToString(t.Path)
+	}
+	if t.Owner != (common.Hash{}) {
+		tj.Owner = t.Owner.Hex()
+	}
+	return json.Marshal(tj)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for TrieNode
+func (t *TrieNode) UnmarshalJSON(data []byte) error {
+	var tj trieNodeJSON
+	if err := json.Unmarshal(data, &tj); err != nil {
+		return err
+	}
+
+	t.Type = tj.Type
+	t.StateID = tj.StateID
+
+	// Decode hex fields
+	if tj.Key != "" {
+		k, err := hex.DecodeString(strings.TrimPrefix(tj.Key, "0x"))
+		if err != nil {
+			return fmt.Errorf("invalid key hex: %w", err)
+		}
+		t.Key = k
+	}
+	if tj.Value != "" {
+		v, err := hex.DecodeString(strings.TrimPrefix(tj.Value, "0x"))
+		if err != nil {
+			return fmt.Errorf("invalid value hex: %w", err)
+		}
+		t.Value = v
+	}
+	if tj.Path != "" {
+		p, err := hex.DecodeString(strings.TrimPrefix(tj.Path, "0x"))
+		if err != nil {
+			return fmt.Errorf("invalid path hex: %w", err)
+		}
+		t.Path = p
+	}
+	if tj.Owner != "" {
+		t.Owner = common.HexToHash(tj.Owner)
+	}
+
+	return nil
+}
+
+// TrieExportStats contains statistics for a trie export
+type TrieExportStats struct {
+	AccountNodes  int64 `json:"accountNodes"`
+	StorageNodes  int64 `json:"storageNodes"`
+	CodeBlobs     int64 `json:"codeBlobs"`
+	StateIDs      int64 `json:"stateIds"`
+	TotalBytes    int64 `json:"totalBytes"`
+	ExportTimeMs  int64 `json:"exportTimeMs"`
+	StateRoot     common.Hash `json:"stateRoot,omitempty"`
+}
+
+// TrieImportResult contains the result of a trie import
+type TrieImportResult struct {
+	Success       bool   `json:"success"`
+	NodesImported int64  `json:"nodesImported"`
+	BytesWritten  int64  `json:"bytesWritten"`
+	ImportTimeMs  int64  `json:"importTimeMs"`
+	Errors        []string `json:"errors,omitempty"`
 }

@@ -19,12 +19,52 @@ import (
 
 // BlockEntry represents a single block to import.
 // This is the canonical format for block migration, compatible with JSONL export.
+//
+// For correct state migration, stateChanges MUST be present on every block:
+//   - Block 0 (genesis): full account snapshot (not a diff)
+//   - Block N>0: post-state diff relative to parent
 type BlockEntry struct {
 	Height   uint64 `json:"height"`   // Block number
 	Hash     string `json:"hash"`     // Block hash (hex with 0x prefix)
 	Header   string `json:"header"`   // RLP-encoded header (hex with 0x prefix)
 	Body     string `json:"body"`     // RLP-encoded body (hex with 0x prefix)
 	Receipts string `json:"receipts"` // RLP-encoded receipts (hex with 0x prefix)
+
+	// StateChanges contains per-block state diffs for diff-replay import.
+	// Key is account address (hex with 0x prefix), value is the state change.
+	// This field is REQUIRED for correct balance/state migration.
+	// If absent, importer falls back to EVM execution (requires matching genesis).
+	StateChanges map[string]*StateChangeEntry `json:"stateChanges,omitempty"`
+
+	// Metadata
+	Meta *BlockMeta `json:"meta,omitempty"`
+}
+
+// StateChangeEntry represents a state change for a single account.
+// This is the diff format - only fields that changed are included.
+type StateChangeEntry struct {
+	// Nonce - current nonce after this block
+	Nonce uint64 `json:"nonce"`
+
+	// Balance - hex-encoded balance after this block
+	Balance string `json:"balance"`
+
+	// Code - hex-encoded contract code (only if code changed, e.g., contract creation)
+	Code string `json:"code,omitempty"`
+
+	// Storage - map of slot (hex) -> value (hex) for changed slots
+	// Zero value (0x0...0) means delete the slot from storage trie
+	Storage map[string]string `json:"storage,omitempty"`
+
+	// Deleted - true if account was self-destructed/deleted this block
+	// If true, remove account from state trie entirely
+	Deleted bool `json:"deleted,omitempty"`
+}
+
+// BlockMeta contains metadata about the block's chain context
+type BlockMeta struct {
+	ChainID     uint64 `json:"chainId,omitempty"`
+	GenesisHash string `json:"genesisHash,omitempty"`
 }
 
 // ImportBlocksArgs is the request for ImportBlocks RPC (used by coreth HTTP-style RPC)
