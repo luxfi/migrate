@@ -320,6 +320,13 @@ func (e *Exporter) ExportBlocks(ctx context.Context, start, end uint64) (<-chan 
 	return blocks, errs
 }
 
+// ExportBlocksWithState exports blocks with full state attached to genesis block.
+// For C-Chain RPC exporter, this is the same as ExportBlocks since state is
+// reconstructed via transaction execution during import.
+func (e *Exporter) ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *migrate.BlockData, <-chan error) {
+	return e.ExportBlocks(ctx, start, end)
+}
+
 // exportBlock exports a single block at the given height via RPC.
 func (e *Exporter) exportBlock(height uint64) (*migrate.BlockData, error) {
 	// Get block with full transactions

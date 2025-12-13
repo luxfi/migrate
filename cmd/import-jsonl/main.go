@@ -16,12 +16,12 @@ import (
 
 // BlockData represents a block from JSONL export
 type BlockData struct {
-	Number       uint64                      `json:"number"`
+	Height       uint64                      `json:"height"`
 	Hash         string                      `json:"hash"`
-	HeaderRLP    string                      `json:"header_rlp"`
-	BodyRLP      string                      `json:"body_rlp"`
-	ReceiptsRLP  string                      `json:"receipts_rlp"`
-	StateChanges map[string]*ImportAccountState `json:"state_changes,omitempty"`
+	Header       string                      `json:"header"`
+	Body         string                      `json:"body"`
+	Receipts     string                      `json:"receipts"`
+	StateChanges map[string]*ImportAccountState `json:"stateChanges,omitempty"`
 }
 
 // ImportAccountState represents account state for import
@@ -174,20 +174,20 @@ func processFile(filename, rpcURL string, batchSize int, startBlock, endBlock ui
 		}
 
 		// Skip if outside range
-		if startBlock > 0 && block.Number < startBlock {
+		if startBlock > 0 && block.Height < startBlock {
 			continue
 		}
-		if endBlock > 0 && block.Number > endBlock {
+		if endBlock > 0 && block.Height > endBlock {
 			break
 		}
 
 		// Convert to import format (add 0x prefix if missing)
 		entry := ImportBlockEntry{
-			Height:       block.Number,
+			Height:       block.Height,
 			Hash:         addHexPrefix(block.Hash),
-			Header:       addHexPrefix(block.HeaderRLP),
-			Body:         addHexPrefix(block.BodyRLP),
-			Receipts:     addHexPrefix(block.ReceiptsRLP),
+			Header:       addHexPrefix(block.Header),
+			Body:         addHexPrefix(block.Body),
+			Receipts:     addHexPrefix(block.Receipts),
 			StateChanges: block.StateChanges,
 		}
 
