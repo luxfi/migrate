@@ -202,6 +202,13 @@ func (e *Exporter) ExportBlocks(ctx context.Context, start, end uint64) (<-chan 
 	return blocks, errs
 }
 
+// ExportBlocksWithState exports blocks with full state attached to genesis block.
+// X-Chain is a UTXO chain with no EVM state trie, so this is equivalent to
+// ExportBlocks; UTXO state is carried in the blocks themselves.
+func (e *Exporter) ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *migrate.BlockData, <-chan error) {
+	return e.ExportBlocks(ctx, start, end)
+}
+
 // ExportState exports UTXO state at a specific block height
 // For X-Chain, this exports all UTXOs that exist at the given height
 func (e *Exporter) ExportState(ctx context.Context, blockNumber uint64) (<-chan *migrate.Account, <-chan error) {

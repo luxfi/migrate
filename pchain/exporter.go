@@ -73,18 +73,18 @@ type DelegatorInfo struct {
 
 // OwnerInfo represents a reward owner
 type OwnerInfo struct {
-	Locktime  uint64          `json:"locktime"`
-	Threshold uint32          `json:"threshold"`
-	Addresses []ids.ShortID   `json:"addresses"`
+	Locktime  uint64        `json:"locktime"`
+	Threshold uint32        `json:"threshold"`
+	Addresses []ids.ShortID `json:"addresses"`
 }
 
 // SubnetInfo represents a subnet's information
 type SubnetInfo struct {
-	ID           ids.ID        `json:"id"`
-	ControlKeys  []ids.ShortID `json:"controlKeys"`
-	Threshold    uint32        `json:"threshold"`
-	Locktime     uint64        `json:"locktime"`
-	IsPermissioned bool        `json:"isPermissioned"`
+	ID             ids.ID        `json:"id"`
+	ControlKeys    []ids.ShortID `json:"controlKeys"`
+	Threshold      uint32        `json:"threshold"`
+	Locktime       uint64        `json:"locktime"`
+	IsPermissioned bool          `json:"isPermissioned"`
 	// For L1 subnets
 	ConversionID   ids.ID `json:"conversionID,omitempty"`
 	ManagerChainID ids.ID `json:"managerChainID,omitempty"`
@@ -93,12 +93,12 @@ type SubnetInfo struct {
 
 // BlockchainInfo represents a blockchain's information
 type BlockchainInfo struct {
-	ID       ids.ID `json:"id"`
-	Name     string `json:"name"`
-	SubnetID ids.ID `json:"subnetID"`
-	VMID     ids.ID `json:"vmID"`
+	ID       ids.ID   `json:"id"`
+	Name     string   `json:"name"`
+	SubnetID ids.ID   `json:"subnetID"`
+	VMID     ids.ID   `json:"vmID"`
 	FxIDs    []ids.ID `json:"fxIDs,omitempty"`
-	Status   string `json:"status"`
+	Status   string   `json:"status"`
 }
 
 // FeeConfig represents the P-Chain fee configuration
@@ -200,6 +200,13 @@ func (e *Exporter) ExportBlocks(ctx context.Context, start, end uint64) (<-chan 
 	}()
 
 	return blocks, errs
+}
+
+// ExportBlocksWithState exports blocks with full state attached to genesis block.
+// P-Chain has no EVM state trie, so this is equivalent to ExportBlocks; platform
+// state is carried in the blocks themselves.
+func (e *Exporter) ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *migrate.BlockData, <-chan error) {
+	return e.ExportBlocks(ctx, start, end)
 }
 
 // ExportState exports P-Chain state (validators, subnets, etc.) at a specific height
@@ -426,8 +433,8 @@ func (e *Exporter) getBlockByHeight(height uint64) (*migrate.BlockData, error) {
 	blockBytes := common.FromHex(blockHex)
 
 	return &migrate.BlockData{
-		Number:     height,
-		Body:       blockBytes,
+		Number: height,
+		Body:   blockBytes,
 		Extensions: map[string]interface{}{
 			"encoding": blockMap["encoding"],
 		},

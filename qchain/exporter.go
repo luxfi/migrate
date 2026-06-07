@@ -89,10 +89,10 @@ func (e *Exporter) GetInfo() (*migrate.Info, error) {
 	genesisHash := common.HexToHash(genesisBlock["hash"].(string))
 
 	return &migrate.Info{
-		VMType:      migrate.VMTypeQChain,
-		ChainID:     e.chainID,
-		NetworkID:   e.chainID.Uint64(),
-		GenesisHash: genesisHash,
+		VMType:        migrate.VMTypeQChain,
+		ChainID:       e.chainID,
+		NetworkID:     e.chainID.Uint64(),
+		GenesisHash:   genesisHash,
 		CurrentHeight: headBlock.Uint64(),
 	}, nil
 }
@@ -145,6 +145,13 @@ func (e *Exporter) ExportBlocks(ctx context.Context, start, end uint64) (<-chan 
 	return blocks, errs
 }
 
+// ExportBlocksWithState exports blocks with full state attached to genesis block.
+// Q-Chain reconstructs state via transaction replay during import, so this is
+// equivalent to ExportBlocks.
+func (e *Exporter) ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *migrate.BlockData, <-chan error) {
+	return e.ExportBlocks(ctx, start, end)
+}
+
 func (e *Exporter) exportBlock(number uint64) (*migrate.BlockData, error) {
 	// Get block with transactions
 	result, err := e.callRPC("eth_getBlockByNumber", []interface{}{
@@ -162,12 +169,12 @@ func (e *Exporter) exportBlock(number uint64) (*migrate.BlockData, error) {
 	blockData := result.(map[string]interface{})
 
 	block := &migrate.BlockData{
-		Number:     number,
-		Hash:       common.HexToHash(blockData["hash"].(string)),
-		ParentHash: common.HexToHash(blockData["parentHash"].(string)),
-		StateRoot:  common.HexToHash(blockData["stateRoot"].(string)),
+		Number:           number,
+		Hash:             common.HexToHash(blockData["hash"].(string)),
+		ParentHash:       common.HexToHash(blockData["parentHash"].(string)),
+		StateRoot:        common.HexToHash(blockData["stateRoot"].(string)),
 		TransactionsRoot: common.HexToHash(blockData["transactionsRoot"].(string)),
-		Extensions: make(map[string]interface{}),
+		Extensions:       make(map[string]interface{}),
 	}
 
 	// Parse timestamp

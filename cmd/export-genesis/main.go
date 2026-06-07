@@ -9,11 +9,12 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/luxfi/geth/common"
+	"github.com/luxfi/geth/core/rawdb"
 	"github.com/luxfi/geth/core/types"
+	"github.com/luxfi/geth/ethdb"
 	"github.com/luxfi/geth/rlp"
 	"github.com/luxfi/geth/trie"
-	"github.com/luxfi/geth/ethdb"
-	"github.com/luxfi/geth/core/rawdb"
+	"github.com/luxfi/geth/triedb"
 )
 
 // JSONLBlock represents a block in JSONL format with state
@@ -89,15 +90,24 @@ func (p *pebbleDB) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
 			return nil
 		}(prefix)
 	}
-	return &pebbleIterator{iter: p.db.NewIter(opts)}
+	iter, err := p.db.NewIter(opts)
+	if err != nil {
+		// Return an iterator that immediately reports the error.
+		return &pebbleIterator{err: err}
+	}
+	return &pebbleIterator{iter: iter}
 }
 
-func (p *pebbleDB) NewSnapshot() (ethdb.Snapshot, error) {
-	return nil, fmt.Errorf("snapshots not supported")
-}
-
-func (p *pebbleDB) Stat(property string) (string, error) {
+func (p *pebbleDB) Stat() (string, error) {
 	return "", fmt.Errorf("stats not supported")
+}
+
+func (p *pebbleDB) SyncKeyValue() error {
+	return nil
+}
+
+func (p *pebbleDB) DeleteRange(start, end []byte) error {
+	return fmt.Errorf("read-only database")
 }
 
 func (p *pebbleDB) Compact(start []byte, limit []byte) error {
@@ -111,26 +121,44 @@ func (p *pebbleDB) Close() error {
 // pebbleIterator wraps pebble.Iterator to implement ethdb.Iterator
 type pebbleIterator struct {
 	iter *pebble.Iterator
+	err  error
 }
 
 func (it *pebbleIterator) Next() bool {
+	if it.iter == nil {
+		return false
+	}
 	return it.iter.Next()
 }
 
 func (it *pebbleIterator) Error() error {
+	if it.err != nil {
+		return it.err
+	}
+	if it.iter == nil {
+		return nil
+	}
 	return it.iter.Error()
 }
 
 func (it *pebbleIterator) Key() []byte {
+	if it.iter == nil {
+		return nil
+	}
 	return it.iter.Key()
 }
 
 func (it *pebbleIterator) Value() []byte {
+	if it.iter == nil {
+		return nil
+	}
 	return it.iter.Value()
 }
 
 func (it *pebbleIterator) Release() {
-	it.iter.Close()
+	if it.iter != nil {
+		it.iter.Close()
+	}
 }
 
 func main() {
@@ -153,7 +181,10 @@ func main() {
 	}
 	defer db.Close()
 
-	ethDB := &pebbleDB{db: db}
+	// Wrap the raw key-value store so it satisfies ethdb.Database (the rawdb
+	// readers require an ancient store, which rawdb.NewDatabase provides as a
+	// no-op for key-value-only backends).
+	ethDB := rawdb.NewDatabase(&pebbleDB{db: db})
 
 	log.Printf("=== Export Genesis Configuration ===")
 	log.Printf("Source DB: %s", *sourceDB)
@@ -216,7 +247,7 @@ func main() {
 	log.Printf("\n=== Exporting State ===")
 	log.Printf("Reading state trie at root: %s", header.Root.Hex())
 
-	trieDB := trie.NewDatabase(ethDB, nil)
+	trieDB := triedb.NewDatabase(ethDB, nil)
 	stateTrie, err := trie.NewStateTrie(trie.StateTrieID(header.Root), trieDB)
 	if err != nil {
 		log.Fatalf("Failed to open state trie: %v", err)
@@ -247,15 +278,17 @@ func main() {
 			// Try to use the address hash as the address (works for most cases in genesis)
 			addr := common.BytesToAddress(addrHash.Bytes())
 
+			codeHash := common.BytesToHash(acc.CodeHash)
+
 			jsonlAcc := &JSONLAccount{
 				Balance:  acc.Balance.String(),
 				Nonce:    acc.Nonce,
-				CodeHash: acc.CodeHash.Hex(),
+				CodeHash: codeHash.Hex(),
 			}
 
 			// Read code if exists
-			if acc.CodeHash != types.EmptyCodeHash && acc.CodeHash != (common.Hash{}) {
-				code := rawdb.ReadCode(ethDB, acc.CodeHash)
+			if codeHash != types.EmptyCodeHash && codeHash != (common.Hash{}) {
+				code := rawdb.ReadCode(ethDB, codeHash)
 				if len(code) > 0 {
 					jsonlAcc.Code = common.Bytes2Hex(code)
 				}

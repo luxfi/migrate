@@ -177,6 +177,13 @@ func (e *Exporter) ExportBlocks(ctx context.Context, start, end uint64) (<-chan 
 	return blocks, errs
 }
 
+// ExportBlocksWithState exports blocks with full state attached to genesis block.
+// Zoo L2 reconstructs state via transaction replay during import, so this is
+// equivalent to ExportBlocks.
+func (e *Exporter) ExportBlocksWithState(ctx context.Context, start, end uint64) (<-chan *migrate.BlockData, <-chan error) {
+	return e.ExportBlocks(ctx, start, end)
+}
+
 // exportBlock exports a single block at the given height
 func (e *Exporter) exportBlock(number uint64) (*migrate.BlockData, error) {
 	// Get canonical hash for this block number

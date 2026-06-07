@@ -25,17 +25,6 @@ type Importer interface {
 	// ImportState imports state accounts at a specific height
 	ImportState(accounts []*Account, blockNumber uint64) error
 
-	// ImportStateTrie imports raw state trie KV pairs directly to the database.
-	// This is the ONLY correct way to import state - RPC block import cannot create state.
-	// The nodes slice contains raw key/value pairs that must be written exactly as provided.
-	// Key prefixes:
-	//   - A* (account trie nodes): namespace + 'A' + hexPath → trie node data
-	//   - O* (storage trie nodes): namespace + 'O' + accountHash + hexPath → trie node data
-	//   - c* (code blobs): namespace + 'c' + codeHash → bytecode
-	//   - L* (state ID mappings, optional): namespace + 'L' + stateRoot → stateID
-	// Returns the number of nodes imported and any error.
-	ImportStateTrie(nodes []*TrieNode) (*TrieImportResult, error)
-
 	// FinalizeImport finalizes the import at a block height
 	FinalizeImport(blockNumber uint64) error
 

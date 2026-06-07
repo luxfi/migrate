@@ -95,7 +95,7 @@ func main() {
 
 	// Find offsets where A/O/c/L show spikes (not uniform)
 	fmt.Println("\n=== Finding prefix byte offset ===")
-	fmt.Println("Looking for offsets where 0x41('A'), 0x4f('O'), 0x63('c'), 0x4c('L') show spikes\n")
+	fmt.Print("Looking for offsets where 0x41('A'), 0x4f('O'), 0x63('c'), 0x4c('L') show spikes\n\n")
 
 	targetBytes := []byte{'A', 'O', 'c', 'L', 'h', 'b', 'r', 'H', 'l', 'B'}
 
