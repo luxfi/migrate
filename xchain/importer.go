@@ -52,7 +52,7 @@ type PendingTx struct {
 type TxBuilder struct {
 	networkID    uint32
 	blockchainID ids.ID
-	xAssetID     ids.ID
+	utxoAssetID  ids.ID
 	codec        interface{}
 }
 
@@ -97,7 +97,7 @@ func (i *Importer) Init(config migrate.ImporterConfig) error {
 	i.txBuilder = &TxBuilder{
 		networkID:    info.NetworkID,
 		blockchainID: info.BlockchainID,
-		xAssetID:     info.XAssetID,
+		utxoAssetID:  info.UTXOAssetID,
 	}
 
 	i.initialized = true
@@ -430,7 +430,7 @@ func (i *Importer) buildExportTx(destChainID ids.ID, amount uint64, destAddress 
 		"destinationChain": destChainID.String(),
 		"amount":           amount,
 		"to":               destAddress,
-		"assetID":          i.info.XAssetID.String(),
+		"assetID":          i.info.UTXOAssetID.String(),
 	}
 
 	var result struct {

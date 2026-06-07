@@ -143,7 +143,7 @@ func TestUTXOsToAccount(t *testing.T) {
 	}
 
 	utxos := []*UTXO{
-		{Amount: 100}, // AssetID is empty, matches empty XAssetID
+		{Amount: 100}, // AssetID is empty, matches empty UTXOAssetID
 		{Amount: 200},
 		{Amount: 50},
 	}
@@ -154,7 +154,7 @@ func TestUTXOsToAccount(t *testing.T) {
 		t.Fatal("account should not be nil")
 	}
 
-	// Balance should be 350 (sum of all UTXOs with empty asset ID matching empty XAssetID)
+	// Balance should be 350 (sum of all UTXOs with empty asset ID matching empty UTXOAssetID)
 	expectedBalance := uint64(350)
 	if account.Balance.Uint64() != expectedBalance {
 		t.Errorf("expected balance %d, got: %d", expectedBalance, account.Balance.Uint64())
@@ -170,19 +170,19 @@ func TestUTXOsToAccountWithDifferentAssets(t *testing.T) {
 	// Test with specific asset ID
 	exporter := &Exporter{
 		info: &XChainInfo{
-			XAssetID: ids.ID{1, 2, 3}, // specific asset ID
+			UTXOAssetID: ids.ID{1, 2, 3}, // specific asset ID
 		},
 	}
 
 	utxos := []*UTXO{
-		{Amount: 100, AssetID: ids.ID{1, 2, 3}}, // Matches XAssetID
+		{Amount: 100, AssetID: ids.ID{1, 2, 3}}, // Matches UTXOAssetID
 		{Amount: 200, AssetID: ids.ID{4, 5, 6}}, // Different asset
-		{Amount: 50, AssetID: ids.ID{1, 2, 3}},  // Matches XAssetID
+		{Amount: 50, AssetID: ids.ID{1, 2, 3}},  // Matches UTXOAssetID
 	}
 
 	account := exporter.utxosToAccount("X-lux1abc123", utxos)
 
-	// Only UTXOs with matching XAssetID should be counted (100 + 50 = 150)
+	// Only UTXOs with matching UTXOAssetID should be counted (100 + 50 = 150)
 	expectedBalance := uint64(150)
 	if account.Balance.Uint64() != expectedBalance {
 		t.Errorf("expected balance %d, got: %d", expectedBalance, account.Balance.Uint64())

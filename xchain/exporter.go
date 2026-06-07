@@ -80,14 +80,14 @@ type XChainBlock struct {
 
 // XChainInfo contains metadata about X-Chain
 type XChainInfo struct {
-	NetworkID       uint32   `json:"networkID"`
-	BlockchainID    ids.ID   `json:"blockchainID"`
-	XAssetID        ids.ID   `json:"xAssetID"`
-	CurrentHeight   uint64   `json:"currentHeight"`
-	LastAcceptedID  ids.ID   `json:"lastAcceptedID"`
-	TotalAssets     uint64   `json:"totalAssets"`
-	TotalUTXOs      uint64   `json:"totalUTXOs"`
-	IndexerEnabled  bool     `json:"indexerEnabled"`
+	NetworkID      uint32 `json:"networkID"`
+	BlockchainID   ids.ID `json:"blockchainID"`
+	UTXOAssetID    ids.ID `json:"utxoAssetID"`
+	CurrentHeight  uint64 `json:"currentHeight"`
+	LastAcceptedID ids.ID `json:"lastAcceptedID"`
+	TotalAssets    uint64 `json:"totalAssets"`
+	TotalUTXOs     uint64 `json:"totalUTXOs"`
+	IndexerEnabled bool   `json:"indexerEnabled"`
 }
 
 // Exporter exports data from X-Chain via RPC or database
@@ -443,14 +443,14 @@ func (e *Exporter) fetchTransaction(ctx context.Context, txID string) (*XChainTx
 	var result struct {
 		Tx struct {
 			UnsignedTx struct {
-				TypeID           uint32 `json:"typeID"`
-				NetworkID        uint32 `json:"networkID"`
-				BlockchainID     string `json:"blockchainID"`
+				TypeID           uint32        `json:"typeID"`
+				NetworkID        uint32        `json:"networkID"`
+				BlockchainID     string        `json:"blockchainID"`
 				Inputs           []interface{} `json:"inputs"`
 				Outputs          []interface{} `json:"outputs"`
-				Memo             string `json:"memo"`
-				SourceChain      string `json:"sourceChain,omitempty"`
-				DestinationChain string `json:"destinationChain,omitempty"`
+				Memo             string        `json:"memo"`
+				SourceChain      string        `json:"sourceChain,omitempty"`
+				DestinationChain string        `json:"destinationChain,omitempty"`
 			} `json:"unsignedTx"`
 		} `json:"tx"`
 		Encoding string `json:"encoding"`
@@ -550,7 +550,7 @@ func (e *Exporter) utxosToAccount(addr string, utxos []*UTXO) *migrate.Account {
 	// For migration purposes, use the primary asset balance
 	var totalBalance uint64
 	if e.info != nil {
-		totalBalance = balances[e.info.XAssetID]
+		totalBalance = balances[e.info.UTXOAssetID]
 	}
 
 	// Parse address to common.Address format
@@ -628,7 +628,7 @@ func (e *Exporter) rpcCall(method string, params interface{}, result interface{}
 	defer resp.Body.Close()
 
 	var rpcResp struct {
-		Result interface{}     `json:"result"`
+		Result interface{}      `json:"result"`
 		Error  *json.RawMessage `json:"error"`
 	}
 	rpcResp.Result = result
